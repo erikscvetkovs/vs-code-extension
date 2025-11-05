@@ -3,8 +3,8 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
-const { pushCustomCode} = require('./campaignScripts/customCode');
-const { pushDynamicContent } = require("./campaignScripts/dynamicContent")
+const { pushCustomCode } = require('./campaignScripts/customCode/customCode');
+const { pushDynamicContent } = require("./campaignScripts/dynamicContent/dynamicContent")
 
 class UrlConfigViewProvider {
     constructor(context) {
@@ -431,7 +431,7 @@ class UrlConfigViewProvider {
     </script>
 </body>
 </html>`;
-    }
+	}
 }
 
 function activate(context) {
