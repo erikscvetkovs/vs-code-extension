@@ -19,6 +19,10 @@
       {
         "command": "dy-code-preview.run",
         "title": "Preview code"
+      },
+      {
+        "command": "dy-code-preview.createCampaign",
+        "title": "Create Campaign"
       }
     ]
   },
