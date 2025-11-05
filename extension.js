@@ -88,12 +88,17 @@ class UrlConfigViewProvider {
             this._watcher.dispose();
         }
 
-        // Watch for changes to settings.json and variables.json
+        // Watch for changes to settings.json, variables.json, and template files
         this._watcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json}')
+            new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json,template.js,template.html,template.css}')
         );
 
-        this._watcher.onDidChange(() => {
+        this._watcher.onDidChange((uri) => {
+            console.log('File changed:', uri.fsPath);
+            // Send message to webview to update preview
+            if (this._view) {
+                this._view.webview.postMessage({ command: 'refreshPreview' });
+            }
             this.updateWebview();
         });
 
@@ -113,6 +118,9 @@ class UrlConfigViewProvider {
         let currentUrl = '';
         let currentType = 'custom code';
         let variables = [];
+        let templateHTML = '';
+        let templateCSS = '';
+        let templateJS = '';
         
         if (workspaceFolder) {
             const settingsPath = path.join(workspaceFolder, 'settings.json');
@@ -136,13 +144,44 @@ class UrlConfigViewProvider {
                     console.error('Error reading variables:', err);
                 }
             }
+
+            // Read template files
+            const templateHTMLPath = path.join(workspaceFolder, 'template.html');
+            if (fs.existsSync(templateHTMLPath)) {
+                templateHTML = fs.readFileSync(templateHTMLPath, 'utf-8');
+            }
+
+            const templateCSSPath = path.join(workspaceFolder, 'template.css');
+            if (fs.existsSync(templateCSSPath)) {
+                templateCSS = fs.readFileSync(templateCSSPath, 'utf-8');
+            }
+
+            const templateJSPath = path.join(workspaceFolder, 'template.js');
+            if (fs.existsSync(templateJSPath)) {
+                templateJS = fs.readFileSync(templateJSPath, 'utf-8');
+                
+                // Prepend variables
+                if (variables.length > 0) {
+                    let variablesCode = '// DY Variables\n';
+                    variables.forEach(variable => {
+                        if (variable.name && variable.value) {
+                            variablesCode += `var ${variable.name} = "${variable.value}";\n`;
+                        }
+                    });
+                    templateJS = variablesCode + '\n' + templateJS;
+                }
+            }
         }
 
-        this._view.webview.html = this.getWebviewContent(currentUrl, currentType, variables);
+        this._view.webview.html = this.getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS);
     }
 
-    getWebviewContent(currentUrl, currentType, variables) {
+    getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS) {
         const variablesJson = JSON.stringify(variables);
+        // Use JSON.stringify to properly escape the content for embedding
+        const escapedHTML = JSON.stringify(templateHTML);
+        const escapedCSS = JSON.stringify(templateCSS);
+        const escapedJS = JSON.stringify(templateJS);
         
         return `<!DOCTYPE html>
 <html lang="en">
@@ -150,6 +189,12 @@ class UrlConfigViewProvider {
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        body {
+            padding: 15px;
+            font-family: var(--vscode-font-family);
+            margin: 0;
+        }
+        .section {
             margin-bottom: 20px;
             padding-bottom: 15px;
             border-bottom: 1px solid var(--vscode-panel-border);
@@ -191,7 +236,8 @@ class UrlConfigViewProvider {
             border: none;
             cursor: pointer;
             font-size: 12px;
-            margin: 10px;
+            margin-right: 6px;
+            margin-top: 6px;
         }
         button:hover {
             background: var(--vscode-button-hoverBackground);
@@ -225,6 +271,17 @@ class UrlConfigViewProvider {
         #variablesList {
             margin-bottom: 10px;
         }
+        #preview-iframe {
+            width: calc(100% - 20px);
+            height: 300px;
+            border: 1px solid var(--vscode-panel-border);
+            background: white;
+            margin: 10px;
+        }
+        .preview-container {
+            background: var(--vscode-editor-background);
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -252,6 +309,13 @@ class UrlConfigViewProvider {
     </div>
 
     <div class="section">
+        <div class="section-title">Live Preview</div>
+        <div class="preview-container">
+            <iframe id="preview-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+        </div>
+    </div>
+
+    <div class="section">
         <div class="section-title">Actions</div>
         <button onclick="runPreview()">▶ Run Preview</button>
     </div>
@@ -259,6 +323,47 @@ class UrlConfigViewProvider {
     <script>
         const vscode = acquireVsCodeApi();
         let variables = ${variablesJson};
+
+        // Listen for messages from the extension
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.command === 'refreshPreview') {
+                console.log('Refreshing preview...');
+                // The entire webview will be reloaded by updateWebview()
+            }
+        });
+
+        function updatePreview() {
+            console.log('Updating preview iframe...');
+            const iframe = document.getElementById('preview-iframe');
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            // Parse the JSON-stringified content
+            const html = ${escapedHTML};
+            const css = ${escapedCSS};
+            const js = ${escapedJS};
+            
+            console.log('HTML length:', html.length);
+            console.log('CSS length:', css.length);
+            console.log('JS length:', js.length);
+            
+            const content = \`<!DOCTYPE html>
+<html>
+<head>
+    <style>\${css}</style>
+</head>
+<body>
+    \${html}
+    <script>\${js}<\\/script>
+</body>
+</html>\`;
+            
+            console.log('Writing to iframe...');
+            iframeDoc.open();
+            iframeDoc.write(content);
+            iframeDoc.close();
+            console.log('Preview updated!');
+        }
 
         function renderVariables() {
             const container = document.getElementById('variablesList');
@@ -320,7 +425,9 @@ class UrlConfigViewProvider {
             });
         }
 
+        console.log('Initializing webview...');
         renderVariables();
+        updatePreview();
     </script>
 </body>
 </html>`;
@@ -421,7 +528,6 @@ function activate(context) {
             vscode.window.showErrorMessage('Failed to open page or run JS.');
         }
     });
-    
 
     context.subscriptions.push(disposable);
 
