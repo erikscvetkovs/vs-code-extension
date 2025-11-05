@@ -407,6 +407,7 @@ function activate(context) {
             vscode.window.showErrorMessage('Failed to open page or run JS.');
         }
     });
+    
 
     context.subscriptions.push(disposable);
 
