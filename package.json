@@ -24,7 +24,26 @@
         "command": "dy-code-preview.createCampaign",
         "title": "Create Campaign"
       }
-    ]
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "dy-code-preview-container",
+          "title": "DY Code Preview",
+          "icon": "$(preview)"
+        }
+      ]
+    },
+    "views": {
+      "dy-code-preview-container": [
+        {
+          "id": "dy-code-preview-view",
+          "name": "Preview Controls",
+          "type": "webview",
+          "icon": "$(preview)"
+        }
+      ]
+    }
   },
   "scripts": {
     "lint": "eslint .",
