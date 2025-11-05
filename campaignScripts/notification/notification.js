@@ -20,7 +20,7 @@ const pushNotificationContent = async (html, css, script, settings) => {
 		await waitFor(() => document.querySelector('body > div') !== null, 10000);
 
 		// Get the target element based on the settings
-		const targetElement = document.querySelector('body > div');
+		const targetElement = document.body;
 
 		if (!targetElement) {
 			throw new Error(`Target element not found`);
@@ -31,7 +31,7 @@ const pushNotificationContent = async (html, css, script, settings) => {
 		previewDiv.className = 'notification-preview-admin';
 
 		// Insert the new div into the DOM based on the method
-		targetElement.insertAdjacentHTML('beforeend', previewDiv.outerHTML);
+		targetElement.insertAdjacentHTML('afterbegin', previewDiv.outerHTML);
 
 		// Select the newly inserted div
 		const insertedDiv = targetElement.parentElement.querySelector('.notification-preview-admin');
