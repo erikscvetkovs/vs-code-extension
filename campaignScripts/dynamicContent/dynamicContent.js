@@ -34,6 +34,10 @@ const pushDynamicContent = async (html, css, script, settings) => {
 		const previewDiv = document.createElement('div');
 		previewDiv.className = 'dy-preview-admin';
 
+		if (settings.method === 'afterbegin') {
+			targetElement.innerHTML = '';
+		}
+
 		// Insert the new div into the DOM based on the method
 		targetElement.insertAdjacentHTML(settings.method, previewDiv.outerHTML);
 

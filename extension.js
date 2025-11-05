@@ -1,3 +1,4 @@
+
 const vscode = require('vscode');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
@@ -5,6 +6,7 @@ const path = require('path');
 
 const { pushCustomCode } = require('./campaignScripts/customCode/customCode');
 const { pushDynamicContent } = require("./campaignScripts/dynamicContent/dynamicContent")
+const { pushNotificationContent } = require('./campaignScripts/notification/notification');
 
 class UrlConfigViewProvider {
 	constructor(context) {
@@ -35,7 +37,11 @@ class UrlConfigViewProvider {
 					const settingsPath = path.join(workspaceFolder, 'settings.json');
 					const settings = {
 						url: message.url,
-						type: message.type
+						type: message.type,
+						... (message.type === 'dynamic content' && {
+							selector: message.selector,
+							method: message.method,
+						})
 					};
 
 					try {
@@ -90,7 +96,7 @@ class UrlConfigViewProvider {
 
 		// Watch for changes to settings.json, variables.json, and template files
 		this._watcher = vscode.workspace.createFileSystemWatcher(
-			new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json,template.js,template.html,template.css}')
+			new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json,template.js,template.html,style.css}')
 		);
 
 		this._watcher.onDidChange((uri) => {
@@ -103,6 +109,10 @@ class UrlConfigViewProvider {
 		});
 
 		this._watcher.onDidCreate(() => {
+			this.updateWebview();
+		});
+
+		this._watcher.onDidChange(() => {
 			this.updateWebview();
 		});
 
@@ -121,13 +131,14 @@ class UrlConfigViewProvider {
 		let templateHTML = '';
 		let templateCSS = '';
 		let templateJS = '';
+		let settings = '';
 
 		if (workspaceFolder) {
 			const settingsPath = path.join(workspaceFolder, 'settings.json');
 			if (fs.existsSync(settingsPath)) {
 				try {
 					const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
-					const settings = JSON.parse(settingsContent);
+					settings = JSON.parse(settingsContent);
 					currentUrl = settings.url || '';
 					currentType = settings.type || 'custom code';
 				} catch (err) {
@@ -145,13 +156,14 @@ class UrlConfigViewProvider {
 				}
 			}
 
+
 			// Read template files
 			const templateHTMLPath = path.join(workspaceFolder, 'template.html');
 			if (fs.existsSync(templateHTMLPath)) {
 				templateHTML = fs.readFileSync(templateHTMLPath, 'utf-8');
 			}
 
-			const templateCSSPath = path.join(workspaceFolder, 'template.css');
+			const templateCSSPath = path.join(workspaceFolder, 'style.css');
 			if (fs.existsSync(templateCSSPath)) {
 				templateCSS = fs.readFileSync(templateCSSPath, 'utf-8');
 			}
@@ -172,11 +184,12 @@ class UrlConfigViewProvider {
 				}
 			}
 		}
+		console.log(templateCSS, "templateCSs")
 
-		this._view.webview.html = this.getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS);
+		this._view.webview.html = this.getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS, settings);
 	}
 
-	getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS) {
+	getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS, settings) {
 		const variablesJson = JSON.stringify(variables);
 		// Use JSON.stringify to properly escape the content for embedding
 		const escapedHTML = JSON.stringify(templateHTML);
@@ -296,8 +309,25 @@ class UrlConfigViewProvider {
             <select id="campaignType">
                 <option value="custom code" ${currentType === 'custom code' ? 'selected' : ''}>Custom Code</option>
                 <option value="dynamic content" ${currentType === 'dynamic content' ? 'selected' : ''}>Dynamic Content</option>
+				<option value="notification" ${currentType === 'notification' ? 'selected' : ''}>Overlay</option>
             </select>
         </div>
+
+<div id="dynamicContentSettings" style="display: ${currentType === 'dynamic content' ? 'block' : 'none'};">
+    <div class="form-group">
+        <label for="method">Method:</label>
+        <select id="method">
+            <option value="beforebegin" ${currentType === 'dynamic content' && settings.method === 'beforebegin' ? 'selected' : ''}>insert before</option>
+            <option value="afterbegin" ${currentType === 'dynamic content' && settings.method === 'afterbegin' ? 'selected' : ''}>replace</option>
+			<option value="afterend" ${currentType === 'dynamic content' && settings.method === 'afterend' ? 'selected' : ''}>insert after</option>
+        </select>
+    </div>
+    <div class="form-group">
+        <label for="selector">Selector:</label>
+        <input type="text" id="selector" value="${currentType === 'dynamic content' && settings.selector ? settings.selector : 'body'}" placeholder="CSS selector">
+    </div>
+</div>
+
         <button onclick="saveSettings()">Save Settings</button>
     </div>
 
@@ -321,6 +351,18 @@ class UrlConfigViewProvider {
     </div>
 
     <script>
+
+		const campaignTypeSelect = document.getElementById('campaignType');
+		const dynamicSettingsDiv = document.getElementById('dynamicContentSettings');
+
+		campaignTypeSelect.addEventListener('change', () => {
+			if (campaignTypeSelect.value === 'dynamic content') {
+				dynamicSettingsDiv.style.display = 'block';
+			} else {
+				dynamicSettingsDiv.style.display = 'none';
+			}
+		});
+		
         const vscode = acquireVsCodeApi();
         let variables = ${variablesJson};
 
@@ -400,15 +442,39 @@ class UrlConfigViewProvider {
             variables[index][field] = value;
         }
 
-        function saveSettings() {
-            const url = document.getElementById('url').value;
-            const type = document.getElementById('campaignType').value;
-            vscode.postMessage({
-                command: 'saveSettings',
-                url: url,
-                type: type
-            });
-        }
+        // function saveSettings() {
+        //     const url = document.getElementById('url').value;
+        //     const type = document.getElementById('campaignType').value;
+        //     vscode.postMessage({
+        //         command: 'saveSettings',
+        //         url: url,
+        //         type: type,
+		// 		...(campaignType === 'dynamic content' ? {
+		// 			method,
+		// 			selector
+		// 		} : {})
+        //     });
+        // }
+
+		function saveSettings() {
+		   debugger
+			const url = document.getElementById('url').value;
+			const type = document.getElementById('campaignType').value;
+
+			const message = {
+				command: 'saveSettings',
+				url: url,
+				type: type
+			};
+
+			if (type === 'dynamic content') {
+				message.method = document.getElementById('method').value;
+				message.selector = document.getElementById('selector').value;
+			}
+
+			vscode.postMessage(message);
+		}
+
 
         function saveVariables() {
             // Filter out empty variables
@@ -563,6 +629,12 @@ function activate(context) {
 						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)},  ${JSON.stringify(settings)})
 					`);
 					break;
+				case 'notification':
+					injectedFunction = pushNotificationContent.toString();
+					await page.evaluate(`
+						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)},  ${JSON.stringify(settings)})
+					`);
+					break;
 				default:
 					vscode.window.showErrorMessage(`❌ Unsupported code type: ${settings.type}`);
 					return;
@@ -596,7 +668,7 @@ function activate(context) {
 		}
 
 		const campaignType = await vscode.window.showQuickPick(
-			['custom code', 'dynamic content'],
+			['custom code', 'dynamic content', 'notification'],
 			{ placeHolder: 'Select campaign type' }
 		);
 
@@ -614,9 +686,16 @@ function activate(context) {
 				vscode.window.showWarningMessage(`Folder "${folderName}" already exists. Files will be overwritten.`);
 			}
 
+
+			console.log('xxx campaign type ', campaignType);
+
 			const settings = {
 				url: "",
-				type: campaignType
+				type: campaignType,
+				...(campaignType === 'dynamic content' ? {
+					method: "append",
+					selector: "body"
+				} : {})
 			};
 			fs.writeFileSync(path.join(campaignFolder, 'settings.json'), JSON.stringify(settings, null, 2));
 
