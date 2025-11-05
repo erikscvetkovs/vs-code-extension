@@ -36,25 +36,17 @@ A Visual Studio Code extension for previewing and managing Dynamic Yield campaig
 ## Getting Started
 
 1. Open the DY Code Preview panel from the Activity Bar
-2. Create a new campaign using the "Create Campaign" command
-3. Configure your campaign settings:
+2. Configure your campaign settings:
    - Enter the preview URL
    - Select campaign type
    - Configure additional settings based on campaign type
-4. Add variables as needed
-5. Edit your template files:
+3. Add variables as needed
+4. Edit your template files:
    - Add JavaScript code to `template.js`
    - Add HTML content to `template.html`
    - Add CSS styles to `style.css`
-6. Use the live preview to see your changes in real-time
-7. Click "Run Preview" to open a full preview in a new browser window
-
-## Commands
-
-- `DY Code Preview: Run` - Run the preview in a new browser window
-- `DY Code Preview: Create Campaign` - Create a new campaign folder with template files
-
-## Campaign Types
+5. Use the live preview to see your changes in real-time
+6. Click "Run Preview" to open a full preview in a new browser window
 
 ### Custom Code
 Basic campaign type for injecting custom JavaScript code into the page.
@@ -75,24 +67,19 @@ For creating overlay notifications and popups with custom content.
 A typical campaign folder contains:
 ```
 campaign-folder/
-├── settings.json      # Campaign configuration
+├── settings.json      # Campaign configuration (created by extension)
 ├── template.js        # JavaScript code
 ├── template.html      # HTML content
 ├── style.css         # CSS styles
-└── variables.json    # Variable definitions
+└── variables.json    # Variable definitions (created by extension)
 ```
-
-## Extension Settings
-
-This extension contributes the following settings:
-
-* `dy-code-preview.run`: Execute preview
-* `dy-code-preview.createCampaign`: Create new campaign
 
 ## Known Issues
 
 - Preview might not work with websites that have strict Content Security Policy (CSP)
 - Some dynamic content might not be visible in the embedded preview window
+- DY variables now available only for javascript
+- Not all cmapaign types are available
 
 ## Release Notes
 
