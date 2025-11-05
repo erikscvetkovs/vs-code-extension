@@ -3,7 +3,8 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
-const { pushCustomCode } = require('./campaignScripts/customCode');
+const { pushCustomCode} = require('./campaignScripts/customCode');
+const { pushDynamicContent } = require("./campaignScripts/dynamicContent")
 
 class UrlConfigViewProvider {
     constructor(context) {
@@ -203,16 +204,29 @@ function activate(context) {
                 headless: false,
                 defaultViewport: null
             });
-
+            
             const page = await browser.newPage();
             await page.goto(url);
-
-            const injectedFunction = pushCustomCode.toString();
+            
+            let injectedFunction;
+            
+            switch (codeType) {
+                case 'customCode':
+                    injectedFunction = pushCustomCode.toString();
+                    break;
+                case 'dynamicContent':
+                    injectedFunction = pushDynamicContent.toString();
+                    break;
+                default:
+                    vscode.window.showErrorMessage(`❌ Unsupported code type: ${codeType}`);
+                    return;
+            }
+            
             await page.evaluate(`
                 (${injectedFunction})(${JSON.stringify(jsCode)})
             `);
-
-            vscode.window.showInformationMessage(`✅ Opened page ${url} and executed JS!`);
+            
+            vscode.window.showInformationMessage(`✅ Opened page ${url} and executed ${codeType}!`);
         } catch (err) {
             console.error(err);
             vscode.window.showErrorMessage('Failed to open page or run JS.');
