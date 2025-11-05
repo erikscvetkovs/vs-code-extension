@@ -15,6 +15,8 @@ const pushCustomCode = async (script) => {
         });
     }
 
+    console.log('script ', script);
+
     try {
         await waitFor(() => window.DY !== undefined, 10000);
         console.log('window.DY is available!');

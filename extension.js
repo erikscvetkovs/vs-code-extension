@@ -7,183 +7,183 @@ const { pushCustomCode } = require('./campaignScripts/customCode/customCode');
 const { pushDynamicContent } = require("./campaignScripts/dynamicContent/dynamicContent")
 
 class UrlConfigViewProvider {
-    constructor(context) {
-        this._context = context;
-        this._view = null;
-        this._watcher = null;
-    }
+	constructor(context) {
+		this._context = context;
+		this._view = null;
+		this._watcher = null;
+	}
 
-    resolveWebviewView(webviewView) {
-        this._view = webviewView;
-        
-        webviewView.webview.options = {
-            enableScripts: true
-        };
+	resolveWebviewView(webviewView) {
+		this._view = webviewView;
 
-        this.updateWebview();
+		webviewView.webview.options = {
+			enableScripts: true
+		};
 
-        webviewView.webview.onDidReceiveMessage(message => {
-            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-            
-            switch (message.command) {
-                case 'saveSettings':
-                    if (!workspaceFolder) {
-                        vscode.window.showErrorMessage('Please open a workspace folder first.');
-                        return;
-                    }
+		this.updateWebview();
 
-                    const settingsPath = path.join(workspaceFolder, 'settings.json');
-                    const settings = {
-                        url: message.url,
-                        type: message.type
-                    };
+		webviewView.webview.onDidReceiveMessage(message => {
+			const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 
-                    try {
-                        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-                        vscode.window.showInformationMessage(`✅ Settings saved!`);
-                    } catch (err) {
-                        vscode.window.showErrorMessage('Failed to save settings.json');
-                        console.error(err);
-                    }
-                    return;
+			switch (message.command) {
+				case 'saveSettings':
+					if (!workspaceFolder) {
+						vscode.window.showErrorMessage('Please open a workspace folder first.');
+						return;
+					}
 
-                case 'saveVariables':
-                    if (!workspaceFolder) {
-                        vscode.window.showErrorMessage('Please open a workspace folder first.');
-                        return;
-                    }
+					const settingsPath = path.join(workspaceFolder, 'settings.json');
+					const settings = {
+						url: message.url,
+						type: message.type
+					};
 
-                    const variablesPath = path.join(workspaceFolder, 'variables.json');
+					try {
+						fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+						vscode.window.showInformationMessage(`✅ Settings saved!`);
+					} catch (err) {
+						vscode.window.showErrorMessage('Failed to save settings.json');
+						console.error(err);
+					}
+					return;
 
-                    try {
-                        fs.writeFileSync(variablesPath, JSON.stringify(message.variables, null, 2));
-                        vscode.window.showInformationMessage(`✅ Variables saved!`);
-                        
-                        // Update webview to reflect saved changes
-                        this.updateWebview();
-                    } catch (err) {
-                        vscode.window.showErrorMessage('Failed to save variables.json');
-                        console.error(err);
-                    }
-                    return;
+				case 'saveVariables':
+					if (!workspaceFolder) {
+						vscode.window.showErrorMessage('Please open a workspace folder first.');
+						return;
+					}
 
-                case 'runPreview':
-                    vscode.commands.executeCommand('dy-code-preview.run');
-                    return;
-            }
-        });
+					const variablesPath = path.join(workspaceFolder, 'variables.json');
 
-        // Watch for file changes to update webview
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (workspaceFolder) {
-            this.watchFiles(workspaceFolder);
-        }
-    }
+					try {
+						fs.writeFileSync(variablesPath, JSON.stringify(message.variables, null, 2));
+						vscode.window.showInformationMessage(`✅ Variables saved!`);
 
-    watchFiles(workspaceFolder) {
-        if (!workspaceFolder) return;
+						// Update webview to reflect saved changes
+						this.updateWebview();
+					} catch (err) {
+						vscode.window.showErrorMessage('Failed to save variables.json');
+						console.error(err);
+					}
+					return;
 
-        // Dispose previous watcher if it exists
-        if (this._watcher) {
-            this._watcher.dispose();
-        }
+				case 'runPreview':
+					vscode.commands.executeCommand('dy-code-preview.run');
+					return;
+			}
+		});
 
-        // Watch for changes to settings.json, variables.json, and template files
-        this._watcher = vscode.workspace.createFileSystemWatcher(
-            new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json,template.js,template.html,template.css}')
-        );
+		// Watch for file changes to update webview
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		if (workspaceFolder) {
+			this.watchFiles(workspaceFolder);
+		}
+	}
 
-        this._watcher.onDidChange((uri) => {
-            console.log('File changed:', uri.fsPath);
-            // Send message to webview to update preview
-            if (this._view) {
-                this._view.webview.postMessage({ command: 'refreshPreview' });
-            }
-            this.updateWebview();
-        });
+	watchFiles(workspaceFolder) {
+		if (!workspaceFolder) return;
 
-        this._watcher.onDidCreate(() => {
-            this.updateWebview();
-        });
+		// Dispose previous watcher if it exists
+		if (this._watcher) {
+			this._watcher.dispose();
+		}
 
-        this._watcher.onDidDelete(() => {
-            this.updateWebview();
-        });
-    }
+		// Watch for changes to settings.json, variables.json, and template files
+		this._watcher = vscode.workspace.createFileSystemWatcher(
+			new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json,template.js,template.html,template.css}')
+		);
 
-    updateWebview() {
-        if (!this._view) return;
+		this._watcher.onDidChange((uri) => {
+			console.log('File changed:', uri.fsPath);
+			// Send message to webview to update preview
+			if (this._view) {
+				this._view.webview.postMessage({ command: 'refreshPreview' });
+			}
+			this.updateWebview();
+		});
 
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        let currentUrl = '';
-        let currentType = 'custom code';
-        let variables = [];
-        let templateHTML = '';
-        let templateCSS = '';
-        let templateJS = '';
-        
-        if (workspaceFolder) {
-            const settingsPath = path.join(workspaceFolder, 'settings.json');
-            if (fs.existsSync(settingsPath)) {
-                try {
-                    const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
-                    const settings = JSON.parse(settingsContent);
-                    currentUrl = settings.url || '';
-                    currentType = settings.type || 'custom code';
-                } catch (err) {
-                    console.error('Error reading settings:', err);
-                }
-            }
+		this._watcher.onDidCreate(() => {
+			this.updateWebview();
+		});
 
-            const variablesPath = path.join(workspaceFolder, 'variables.json');
-            if (fs.existsSync(variablesPath)) {
-                try {
-                    const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
-                    variables = JSON.parse(variablesContent);
-                } catch (err) {
-                    console.error('Error reading variables:', err);
-                }
-            }
+		this._watcher.onDidDelete(() => {
+			this.updateWebview();
+		});
+	}
 
-            // Read template files
-            const templateHTMLPath = path.join(workspaceFolder, 'template.html');
-            if (fs.existsSync(templateHTMLPath)) {
-                templateHTML = fs.readFileSync(templateHTMLPath, 'utf-8');
-            }
+	updateWebview() {
+		if (!this._view) return;
 
-            const templateCSSPath = path.join(workspaceFolder, 'template.css');
-            if (fs.existsSync(templateCSSPath)) {
-                templateCSS = fs.readFileSync(templateCSSPath, 'utf-8');
-            }
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		let currentUrl = '';
+		let currentType = 'custom code';
+		let variables = [];
+		let templateHTML = '';
+		let templateCSS = '';
+		let templateJS = '';
 
-            const templateJSPath = path.join(workspaceFolder, 'template.js');
-            if (fs.existsSync(templateJSPath)) {
-                templateJS = fs.readFileSync(templateJSPath, 'utf-8');
-                
-                // Prepend variables
-                if (variables.length > 0) {
-                    let variablesCode = '// DY Variables\n';
-                    variables.forEach(variable => {
-                        if (variable.name && variable.value) {
-                            variablesCode += `var ${variable.name} = "${variable.value}";\n`;
-                        }
-                    });
-                    templateJS = variablesCode + '\n' + templateJS;
-                }
-            }
-        }
+		if (workspaceFolder) {
+			const settingsPath = path.join(workspaceFolder, 'settings.json');
+			if (fs.existsSync(settingsPath)) {
+				try {
+					const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
+					const settings = JSON.parse(settingsContent);
+					currentUrl = settings.url || '';
+					currentType = settings.type || 'custom code';
+				} catch (err) {
+					console.error('Error reading settings:', err);
+				}
+			}
 
-        this._view.webview.html = this.getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS);
-    }
+			const variablesPath = path.join(workspaceFolder, 'variables.json');
+			if (fs.existsSync(variablesPath)) {
+				try {
+					const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
+					variables = JSON.parse(variablesContent);
+				} catch (err) {
+					console.error('Error reading variables:', err);
+				}
+			}
 
-    getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS) {
-        const variablesJson = JSON.stringify(variables);
-        // Use JSON.stringify to properly escape the content for embedding
-        const escapedHTML = JSON.stringify(templateHTML);
-        const escapedCSS = JSON.stringify(templateCSS);
-        const escapedJS = JSON.stringify(templateJS);
-        
-        return `<!DOCTYPE html>
+			// Read template files
+			const templateHTMLPath = path.join(workspaceFolder, 'template.html');
+			if (fs.existsSync(templateHTMLPath)) {
+				templateHTML = fs.readFileSync(templateHTMLPath, 'utf-8');
+			}
+
+			const templateCSSPath = path.join(workspaceFolder, 'template.css');
+			if (fs.existsSync(templateCSSPath)) {
+				templateCSS = fs.readFileSync(templateCSSPath, 'utf-8');
+			}
+
+			const templateJSPath = path.join(workspaceFolder, 'template.js');
+			if (fs.existsSync(templateJSPath)) {
+				templateJS = fs.readFileSync(templateJSPath, 'utf-8');
+
+				// Prepend variables
+				if (variables.length > 0) {
+					let variablesCode = '// DY Variables\n';
+					variables.forEach(variable => {
+						if (variable.name && variable.value) {
+							variablesCode += `var ${variable.name} = "${variable.value}";\n`;
+						}
+					});
+					templateJS = variablesCode + '\n' + templateJS;
+				}
+			}
+		}
+
+		this._view.webview.html = this.getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS);
+	}
+
+	getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS) {
+		const variablesJson = JSON.stringify(variables);
+		// Use JSON.stringify to properly escape the content for embedding
+		const escapedHTML = JSON.stringify(templateHTML);
+		const escapedCSS = JSON.stringify(templateCSS);
+		const escapedJS = JSON.stringify(templateJS);
+
+		return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
@@ -554,7 +554,7 @@ function activate(context) {
 				case 'custom code':
 					injectedFunction = pushCustomCode.toString();
 					await page.evaluate(`
-						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)})
+						(${injectedFunction})(${JSON.stringify(jsCode)})
 					`);
 					break;
 				case 'dynamic content':
