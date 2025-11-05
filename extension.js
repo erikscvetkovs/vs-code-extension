@@ -101,6 +101,16 @@ class UrlConfigViewProvider {
 
 		this._watcher.onDidChange((uri) => {
 			console.log('File changed:', uri.fsPath);
+			
+			// If template.js changed, parse for variables
+			if (uri.fsPath.endsWith('template.js')) {
+				this.parseAndUpdateVariables(workspaceFolder);
+			}
+
+			if (uri.fsPath.endsWith('template.html')) {
+				this.parseAndUpdateVariables(workspaceFolder);
+			}
+			
 			// Send message to webview to update preview
 			if (this._view) {
 				this._view.webview.postMessage({ command: 'refreshPreview' });
@@ -108,7 +118,10 @@ class UrlConfigViewProvider {
 			this.updateWebview();
 		});
 
-		this._watcher.onDidCreate(() => {
+		this._watcher.onDidCreate((uri) => {
+			if (uri.fsPath.endsWith('template.js')) {
+				this.parseAndUpdateVariables(workspaceFolder);
+			}
 			this.updateWebview();
 		});
 
@@ -119,6 +132,92 @@ class UrlConfigViewProvider {
 		this._watcher.onDidDelete(() => {
 			this.updateWebview();
 		});
+	}
+
+	parseAndUpdateVariables(workspaceFolder) {
+		const templateJSPath = path.join(workspaceFolder, 'template.js');
+		const templateHTMLpath = path.join(workspaceFolder, 'template.html');
+		const variablesPath = path.join(workspaceFolder, 'variables.json');
+
+		if (!fs.existsSync(templateJSPath)) {
+			return;
+		}
+
+
+		if (!fs.existsSync(templateHTMLpath)) {
+			return;
+		}
+
+		try {
+			// Read template.js
+			const templateContent = fs.readFileSync(templateJSPath, 'utf-8');
+			const templateContentHTML = fs.readFileSync(templateHTMLpath, 'utf-8');
+
+			// Parse for template literals: ${variableName}
+			// This regex matches ${...} and captures the content inside
+			const regex = /\$\{([^}]+)\}/g;
+			const matches = templateContent.matchAll(regex);
+			const matchesHTML = templateContentHTML.matchAll(regex);
+
+			const detectedVariables = new Set();
+			for (const match of matches) {
+				const expression = match[1].trim();
+				
+				// Extract simple variable names (not complex expressions)
+				// Only capture single word identifiers at the start of the expression
+				const variableMatch = expression.match(/^([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+				if (variableMatch) {
+					detectedVariables.add(variableMatch[1]);
+				}
+			}
+			
+				for (const match of matchesHTML) {
+				const expression = match[1].trim();
+				
+				// Extract simple variable names (not complex expressions)
+				// Only capture single word identifiers at the start of the expression
+				const variableMatch = expression.match(/^([a-zA-Z_$][a-zA-Z0-9_$]*)/);
+				if (variableMatch) {
+					detectedVariables.add(variableMatch[1]);
+				}
+			}
+			// Read existing variables.json
+			let existingVariables = [];
+			if (fs.existsSync(variablesPath)) {
+				try {
+					const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
+					existingVariables = JSON.parse(variablesContent);
+				} catch (err) {
+					console.error('Error reading variables.json:', err);
+				}
+			}
+
+			// Create a map of existing variables by name
+			const existingVarMap = new Map();
+			existingVariables.forEach(v => {
+				if (v.name) {
+					existingVarMap.set(v.name, v.value || '');
+				}
+			});
+
+			// Merge: add new variables, keep existing values
+			const updatedVariables = [];
+			detectedVariables.forEach(varName => {
+				updatedVariables.push({
+					name: varName,
+					value: existingVarMap.get(varName) || ''
+				});
+			});
+
+			// Only write if there are changes
+			if (updatedVariables.length > 0) {
+				fs.writeFileSync(variablesPath, JSON.stringify(updatedVariables, null, 2));
+				console.log(`Auto-detected ${updatedVariables.length} variables from template.js`);
+			}
+
+		} catch (err) {
+			console.error('Error parsing template.js for variables:', err);
+		}
 	}
 
 	updateWebview() {
@@ -506,6 +605,12 @@ function activate(context) {
 		vscode.window.registerWebviewViewProvider('dy-code-preview-view', urlConfigProvider)
 	);
 
+	// Parse variables on activation if template.js exists
+	const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+	if (workspaceFolder) {
+		urlConfigProvider.parseAndUpdateVariables(workspaceFolder);
+	}
+
 	const disposable = vscode.commands.registerCommand('dy-code-preview.run', async () => {
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		if (!workspaceFolder) {
@@ -516,6 +621,7 @@ function activate(context) {
 		const scriptPath = path.join(workspaceFolder, 'template.js');
 		const htmlPath = path.join(workspaceFolder, 'template.html');
 		const cssPath = path.join(workspaceFolder, 'style.css');
+		const variablePath = path.join(workspaceFolder, 'style.css'); 
 
 		if (!fs.existsSync(scriptPath)) {
 			vscode.window.showErrorMessage('template.js not found in workspace folder.');
@@ -561,6 +667,16 @@ function activate(context) {
 			}
 		}
 
+		let variables = '';
+		if (fs.existsSync(variablePath)) {
+			try {
+				css = fs.readFileSync(variablePath, 'utf-8');
+			} catch (err) {
+				console.error('Error reading style.css:', err);
+			}
+		}
+
+
 		const settingsPath = path.join(workspaceFolder, 'settings.json');
 		if (!fs.existsSync(settingsPath)) {
 			vscode.window.showErrorMessage('settings.json not found in workspace folder.');
@@ -604,15 +720,15 @@ function activate(context) {
 			}
 
 			// If there's HTML content, append it into the body
-			if (html) {
-				try {
-					await page.evaluate((content) => {
-						document.body.insertAdjacentHTML('beforeend', content);
-					}, html);
-				} catch (err) {
-					console.error('Failed to inject HTML:', err);
-				}
-			}
+			// if (html) {
+			// 	try {
+			// 		await page.evaluate((content) => {
+			// 			document.body.insertAdjacentHTML('beforeend', content);
+			// 		}, html);
+			// 	} catch (err) {
+			// 		console.error('Failed to inject HTML:', err);
+			// 	}
+			// }
 
 			let injectedFunction;
 
@@ -626,7 +742,7 @@ function activate(context) {
 				case 'dynamic content':
 					injectedFunction = pushDynamicContent.toString();
 					await page.evaluate(`
-						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)},  ${JSON.stringify(settings)})
+						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)},  ${JSON.stringify(settings)}, ${JSON.stringify(variablePath)})
 					`);
 					break;
 				case 'notification':
