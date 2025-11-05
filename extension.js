@@ -435,155 +435,203 @@ class UrlConfigViewProvider {
 }
 
 function activate(context) {
-    const urlConfigProvider = new UrlConfigViewProvider(context);
-    context.subscriptions.push(
-        vscode.window.registerWebviewViewProvider('dy-code-preview-view', urlConfigProvider)
-    );
+	const urlConfigProvider = new UrlConfigViewProvider(context);
+	context.subscriptions.push(
+		vscode.window.registerWebviewViewProvider('dy-code-preview-view', urlConfigProvider)
+	);
 
-    const disposable = vscode.commands.registerCommand('dy-code-preview.run', async () => {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!workspaceFolder) {
-            vscode.window.showErrorMessage('Please open a workspace folder first.');
-            return;
-        }
+	const disposable = vscode.commands.registerCommand('dy-code-preview.run', async () => {
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		if (!workspaceFolder) {
+			vscode.window.showErrorMessage('Please open a workspace folder first.');
+			return;
+		}
 
-        const templatePath = path.join(workspaceFolder, 'template.js');
-        if (!fs.existsSync(templatePath)) {
-            vscode.window.showErrorMessage('template.js not found in workspace folder.');
-            return;
-        }
-        
-        let jsCode = fs.readFileSync(templatePath, 'utf-8');
+		const scriptPath = path.join(workspaceFolder, 'template.js');
+		const htmlPath = path.join(workspaceFolder, 'template.html');
+		const cssPath = path.join(workspaceFolder, 'style.css');
 
-        const variablesPath = path.join(workspaceFolder, 'variables.json');
-        if (fs.existsSync(variablesPath)) {
-            try {
-                const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
-                const variables = JSON.parse(variablesContent);
-                
-                let variablesCode = '// DY Variables\n';
-                variables.forEach(variable => {
-                    if (variable.name && variable.value) {
-                        variablesCode += `var ${variable.name} = "${variable.value}";\n`;
-                    }
-                });
-                
-                jsCode = variablesCode + '\n' + jsCode;
-            } catch (err) {
-                console.error('Error reading variables.json:', err);
-            }
-        }
+		if (!fs.existsSync(scriptPath)) {
+			vscode.window.showErrorMessage('template.js not found in workspace folder.');
+			return;
+		}
 
-        const settingsPath = path.join(workspaceFolder, 'settings.json');
-        if (!fs.existsSync(settingsPath)) {
-            vscode.window.showErrorMessage('settings.json not found in workspace folder.');
-            return;
-        }
+		let jsCode = fs.readFileSync(scriptPath, 'utf-8');
 
-        let url;
-        try {
-            const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
-            const settings = JSON.parse(settingsContent);
-            if (!settings.url) {
-                vscode.window.showErrorMessage('`url` property not found in settings.json');
-                return;
-            }
-            url = settings.url;
-        } catch (err) {
-            vscode.window.showErrorMessage('Failed to read settings.json');
-            console.error(err);
-            return;
-        }
+		const variablesPath = path.join(workspaceFolder, 'variables.json');
+		if (fs.existsSync(variablesPath)) {
+			try {
+				const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
+				const variables = JSON.parse(variablesContent);
 
-        try {
-            const browser = await puppeteer.launch({
-                headless: false,
-                defaultViewport: null
-            });
-            
-            const page = await browser.newPage();
-            await page.goto(url);
-            
-            let injectedFunction;
-            
-            switch (codeType) {
-                case 'customCode':
-                    injectedFunction = pushCustomCode.toString();
-                    break;
-                case 'dynamicContent':
-                    injectedFunction = pushDynamicContent.toString();
-                    break;
-                default:
-                    vscode.window.showErrorMessage(`❌ Unsupported code type: ${codeType}`);
-                    return;
-            }
-            
-            await page.evaluate(`
-                (${injectedFunction})(${JSON.stringify(jsCode)})
-            `);
-            
-            vscode.window.showInformationMessage(`✅ Opened page ${url} and executed ${codeType}!`);
-        } catch (err) {
-            console.error(err);
-            vscode.window.showErrorMessage('Failed to open page or run JS.');
-        }
-    });
+				let variablesCode = '// DY Variables\n';
+				variables.forEach(variable => {
+					if (variable.name && variable.value) {
+						variablesCode += `var ${variable.name} = "${variable.value}";\n`;
+					}
+				});
 
-    context.subscriptions.push(disposable);
+				jsCode = variablesCode + '\n' + jsCode;
+			} catch (err) {
+				console.error('Error reading variables.json:', err);
+			}
+		}
 
-    const createCampaignCommand = vscode.commands.registerCommand('dy-code-preview.createCampaign', async () => {
-        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-        if (!workspaceFolder) {
-            vscode.window.showErrorMessage('Please open a workspace folder first.');
-            return;
-        }
+		let html = '';
+		if (fs.existsSync(htmlPath)) {
+			try {
+				html = fs.readFileSync(htmlPath, 'utf-8');
+			} catch (err) {
+				console.error('Error reading template.html:', err);
+			}
+		}
 
-        const folderName = await vscode.window.showInputBox({
-            prompt: 'Enter folder name for the campaign',
-            placeHolder: 'my-campaign'
-        });
+		let css = '';
+		if (fs.existsSync(cssPath)) {
+			try {
+				css = fs.readFileSync(cssPath, 'utf-8');
+			} catch (err) {
+				console.error('Error reading style.css:', err);
+			}
+		}
 
-        if (!folderName) {
-            vscode.window.showInformationMessage('Campaign creation canceled.');
-            return;
-        }
+		const settingsPath = path.join(workspaceFolder, 'settings.json');
+		if (!fs.existsSync(settingsPath)) {
+			vscode.window.showErrorMessage('settings.json not found in workspace folder.');
+			return;
+		}
 
-        const campaignType = await vscode.window.showQuickPick(
-            ['custom code', 'dynamic content'],
-            { placeHolder: 'Select campaign type' }
-        );
+		let settings;
+		let url;
+		try {
+			const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
+			settings = JSON.parse(settingsContent);
+			if (!settings.url) {
+				vscode.window.showErrorMessage('`url` property not found in settings.json');
+				return;
+			}
+			url = settings.url;
+		} catch (err) {
+			vscode.window.showErrorMessage('Failed to read settings.json');
+			console.error(err);
+			return;
+		}
 
-        if (!campaignType) {
-            vscode.window.showInformationMessage('Campaign creation canceled.');
-            return;
-        }
+		console.log(settings)
 
-        try {
-            const campaignFolder = path.join(workspaceFolder, folderName);
+		try {
+			const browser = await puppeteer.launch({
+				headless: false,
+				defaultViewport: null
+			});
 
-            if (!fs.existsSync(campaignFolder)) {
-                fs.mkdirSync(campaignFolder);
-            } else {
-                vscode.window.showWarningMessage(`Folder "${folderName}" already exists. Files will be overwritten.`);
-            }
+			const page = await browser.newPage();
+			await page.goto(url, { waitUntil: 'networkidle2' });
 
-            const settings = {
-                url: "",
-                type: campaignType
-            };
-            fs.writeFileSync(path.join(campaignFolder, 'settings.json'), JSON.stringify(settings, null, 2));
+			// Inject CSS into the page
+			if (css) {
+				try {
+					await page.addStyleTag({ content: css });
+				} catch (err) {
+					console.error('Failed to inject CSS:', err);
+				}
+			}
 
-            fs.writeFileSync(path.join(campaignFolder, 'script.js'), '// Your JS code here');
+			// If there's HTML content, append it into the body
+			if (html) {
+				try {
+					await page.evaluate((content) => {
+						document.body.insertAdjacentHTML('beforeend', content);
+					}, html);
+				} catch (err) {
+					console.error('Failed to inject HTML:', err);
+				}
+			}
 
-            vscode.window.showInformationMessage(`✅ Campaign folder "${folderName}" created with type "${campaignType}"`);
-        } catch (err) {
-            vscode.window.showErrorMessage('Failed to create campaign folder or files.');
-            console.error(err);
-        }
-    });
+			let injectedFunction;
 
-    context.subscriptions.push(createCampaignCommand);
+			switch (settings.type) {
+				case 'custom code':
+					injectedFunction = pushCustomCode.toString();
+					await page.evaluate(`
+						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)})
+					`);
+					break;
+				case 'dynamic content':
+					injectedFunction = pushDynamicContent.toString();
+					await page.evaluate(`
+						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)},  ${JSON.stringify(settings)})
+					`);
+					break;
+				default:
+					vscode.window.showErrorMessage(`❌ Unsupported code type: ${settings.type}`);
+					return;
+			}
+
+			vscode.window.showInformationMessage(`✅ Opened page ${url} and executed ${settings.type}!`);
+		} catch (err) {
+			console.error(err);
+			vscode.window.showErrorMessage('Failed to open page or run JS.');
+		}
+	});
+
+
+	context.subscriptions.push(disposable);
+
+	const createCampaignCommand = vscode.commands.registerCommand('dy-code-preview.createCampaign', async () => {
+		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+		if (!workspaceFolder) {
+			vscode.window.showErrorMessage('Please open a workspace folder first.');
+			return;
+		}
+
+		const folderName = await vscode.window.showInputBox({
+			prompt: 'Enter folder name for the campaign',
+			placeHolder: 'my-campaign'
+		});
+
+		if (!folderName) {
+			vscode.window.showInformationMessage('Campaign creation canceled.');
+			return;
+		}
+
+		const campaignType = await vscode.window.showQuickPick(
+			['custom code', 'dynamic content'],
+			{ placeHolder: 'Select campaign type' }
+		);
+
+		if (!campaignType) {
+			vscode.window.showInformationMessage('Campaign creation canceled.');
+			return;
+		}
+
+		try {
+			const campaignFolder = path.join(workspaceFolder, folderName);
+
+			if (!fs.existsSync(campaignFolder)) {
+				fs.mkdirSync(campaignFolder);
+			} else {
+				vscode.window.showWarningMessage(`Folder "${folderName}" already exists. Files will be overwritten.`);
+			}
+
+			const settings = {
+				url: "",
+				type: campaignType
+			};
+			fs.writeFileSync(path.join(campaignFolder, 'settings.json'), JSON.stringify(settings, null, 2));
+
+			fs.writeFileSync(path.join(campaignFolder, 'template.js'), '// Your JS code here');
+
+			vscode.window.showInformationMessage(`✅ Campaign folder "${folderName}" created with type "${campaignType}"`);
+		} catch (err) {
+			vscode.window.showErrorMessage('Failed to create campaign folder or files.');
+			console.error(err);
+		}
+	});
+
+	context.subscriptions.push(createCampaignCommand);
 }
+
 
 function deactivate() { }
 
