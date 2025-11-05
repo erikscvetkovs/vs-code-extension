@@ -1,13 +1,4 @@
- const htmlText = require("./html");
- const cssText = require("./css");
- const js = require("./scrpt");
-
 const pushDynamicContent = async (html, css, script, settings) => {
-	html = htmlText;
-	css = cssText;
-	script = js().logic;
-
-
 	function waitFor(conditionFn, timeout = 10000, interval = 100) {
 		return new Promise((resolve, reject) => {
 			const startTime = Date.now();
@@ -25,6 +16,10 @@ const pushDynamicContent = async (html, css, script, settings) => {
 	}
 
 	try {
+		console.log('html ', html)
+		console.log('script ', script)
+		console.log('css ', css)
+		console.log('settings ', settings)
 		// Wait for the target element to exist in the DOM
 		await waitFor(() => document.querySelector(settings.selector) !== null, 10000);
 
