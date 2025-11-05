@@ -3,9 +3,9 @@ const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
-function activate(context) {
-	console.log('Puppeteer opener extension is active!');
+const { pushCustomCode } = require('./campaignScripts/customCode');
 
+function activate(context) {
 	const disposable = vscode.commands.registerCommand('dy-code-preview.run', async () => {
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		if (!workspaceFolder) {
@@ -50,7 +50,10 @@ function activate(context) {
 			const page = await browser.newPage();
 			await page.goto(url);
 
-			await page.evaluate(jsCode);
+			const injectedFunction = pushCustomCode.toString();
+			await page.evaluate(`
+				(${injectedFunction})(${JSON.stringify(jsCode)})
+			`);
 
 			vscode.window.showInformationMessage(`✅ Opened page ${url} and executed JS!`);
 		} catch (err) {
