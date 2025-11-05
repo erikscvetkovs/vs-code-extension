@@ -7,149 +7,194 @@ const { pushCustomCode } = require('./campaignScripts/customCode/customCode');
 const { pushDynamicContent } = require("./campaignScripts/dynamicContent/dynamicContent")
 
 class UrlConfigViewProvider {
-	constructor(context) {
-		this._context = context;
-		this._view = null;
-		this._watcher = null;
-	}
+    constructor(context) {
+        this._context = context;
+        this._view = null;
+        this._watcher = null;
+    }
 
-	resolveWebviewView(webviewView) {
-		this._view = webviewView;
+    resolveWebviewView(webviewView) {
+        this._view = webviewView;
+        
+        webviewView.webview.options = {
+            enableScripts: true
+        };
 
-		webviewView.webview.options = {
-			enableScripts: true
-		};
+        this.updateWebview();
 
-		this.updateWebview();
+        webviewView.webview.onDidReceiveMessage(message => {
+            const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+            
+            switch (message.command) {
+                case 'saveSettings':
+                    if (!workspaceFolder) {
+                        vscode.window.showErrorMessage('Please open a workspace folder first.');
+                        return;
+                    }
 
-		webviewView.webview.onDidReceiveMessage(message => {
-			const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+                    const settingsPath = path.join(workspaceFolder, 'settings.json');
+                    const settings = {
+                        url: message.url,
+                        type: message.type
+                    };
 
-			switch (message.command) {
-				case 'saveSettings':
-					if (!workspaceFolder) {
-						vscode.window.showErrorMessage('Please open a workspace folder first.');
-						return;
-					}
+                    try {
+                        fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
+                        vscode.window.showInformationMessage(`✅ Settings saved!`);
+                    } catch (err) {
+                        vscode.window.showErrorMessage('Failed to save settings.json');
+                        console.error(err);
+                    }
+                    return;
 
-					const settingsPath = path.join(workspaceFolder, 'settings.json');
-					const settings = {
-						url: message.url,
-						type: message.type
-					};
+                case 'saveVariables':
+                    if (!workspaceFolder) {
+                        vscode.window.showErrorMessage('Please open a workspace folder first.');
+                        return;
+                    }
 
-					try {
-						fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-						vscode.window.showInformationMessage(`✅ Settings saved!`);
-					} catch (err) {
-						vscode.window.showErrorMessage('Failed to save settings.json');
-						console.error(err);
-					}
-					return;
+                    const variablesPath = path.join(workspaceFolder, 'variables.json');
 
-				case 'saveVariables':
-					if (!workspaceFolder) {
-						vscode.window.showErrorMessage('Please open a workspace folder first.');
-						return;
-					}
+                    try {
+                        fs.writeFileSync(variablesPath, JSON.stringify(message.variables, null, 2));
+                        vscode.window.showInformationMessage(`✅ Variables saved!`);
+                        
+                        // Update webview to reflect saved changes
+                        this.updateWebview();
+                    } catch (err) {
+                        vscode.window.showErrorMessage('Failed to save variables.json');
+                        console.error(err);
+                    }
+                    return;
 
-					const variablesPath = path.join(workspaceFolder, 'variables.json');
+                case 'runPreview':
+                    vscode.commands.executeCommand('dy-code-preview.run');
+                    return;
+            }
+        });
 
-					try {
-						fs.writeFileSync(variablesPath, JSON.stringify(message.variables, null, 2));
-						vscode.window.showInformationMessage(`✅ Variables saved!`);
+        // Watch for file changes to update webview
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (workspaceFolder) {
+            this.watchFiles(workspaceFolder);
+        }
+    }
 
-						// Update webview to reflect saved changes
-						this.updateWebview();
-					} catch (err) {
-						vscode.window.showErrorMessage('Failed to save variables.json');
-						console.error(err);
-					}
-					return;
+    watchFiles(workspaceFolder) {
+        if (!workspaceFolder) return;
 
-				case 'runPreview':
-					vscode.commands.executeCommand('dy-code-preview.run');
-					return;
-			}
-		});
+        // Dispose previous watcher if it exists
+        if (this._watcher) {
+            this._watcher.dispose();
+        }
 
-		// Watch for file changes to update webview
-		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-		if (workspaceFolder) {
-			this.watchFiles(workspaceFolder);
-		}
-	}
+        // Watch for changes to settings.json, variables.json, and template files
+        this._watcher = vscode.workspace.createFileSystemWatcher(
+            new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json,template.js,template.html,template.css}')
+        );
 
-	watchFiles(workspaceFolder) {
-		if (!workspaceFolder) return;
+        this._watcher.onDidChange((uri) => {
+            console.log('File changed:', uri.fsPath);
+            // Send message to webview to update preview
+            if (this._view) {
+                this._view.webview.postMessage({ command: 'refreshPreview' });
+            }
+            this.updateWebview();
+        });
 
-		// Dispose previous watcher if it exists
-		if (this._watcher) {
-			this._watcher.dispose();
-		}
+        this._watcher.onDidCreate(() => {
+            this.updateWebview();
+        });
 
-		// Watch for changes to settings.json and variables.json
-		this._watcher = vscode.workspace.createFileSystemWatcher(
-			new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json}')
-		);
+        this._watcher.onDidDelete(() => {
+            this.updateWebview();
+        });
+    }
 
-		this._watcher.onDidChange(() => {
-			this.updateWebview();
-		});
+    updateWebview() {
+        if (!this._view) return;
 
-		this._watcher.onDidCreate(() => {
-			this.updateWebview();
-		});
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        let currentUrl = '';
+        let currentType = 'custom code';
+        let variables = [];
+        let templateHTML = '';
+        let templateCSS = '';
+        let templateJS = '';
+        
+        if (workspaceFolder) {
+            const settingsPath = path.join(workspaceFolder, 'settings.json');
+            if (fs.existsSync(settingsPath)) {
+                try {
+                    const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
+                    const settings = JSON.parse(settingsContent);
+                    currentUrl = settings.url || '';
+                    currentType = settings.type || 'custom code';
+                } catch (err) {
+                    console.error('Error reading settings:', err);
+                }
+            }
 
-		this._watcher.onDidDelete(() => {
-			this.updateWebview();
-		});
-	}
+            const variablesPath = path.join(workspaceFolder, 'variables.json');
+            if (fs.existsSync(variablesPath)) {
+                try {
+                    const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
+                    variables = JSON.parse(variablesContent);
+                } catch (err) {
+                    console.error('Error reading variables:', err);
+                }
+            }
 
-	updateWebview() {
-		if (!this._view) return;
+            // Read template files
+            const templateHTMLPath = path.join(workspaceFolder, 'template.html');
+            if (fs.existsSync(templateHTMLPath)) {
+                templateHTML = fs.readFileSync(templateHTMLPath, 'utf-8');
+            }
 
-		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-		let currentUrl = '';
-		let currentType = 'custom code';
-		let variables = [];
+            const templateCSSPath = path.join(workspaceFolder, 'template.css');
+            if (fs.existsSync(templateCSSPath)) {
+                templateCSS = fs.readFileSync(templateCSSPath, 'utf-8');
+            }
 
-		if (workspaceFolder) {
-			const settingsPath = path.join(workspaceFolder, 'settings.json');
-			if (fs.existsSync(settingsPath)) {
-				try {
-					const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
-					const settings = JSON.parse(settingsContent);
-					currentUrl = settings.url || '';
-					currentType = settings.type || 'custom code';
-				} catch (err) {
-					console.error('Error reading settings:', err);
-				}
-			}
+            const templateJSPath = path.join(workspaceFolder, 'template.js');
+            if (fs.existsSync(templateJSPath)) {
+                templateJS = fs.readFileSync(templateJSPath, 'utf-8');
+                
+                // Prepend variables
+                if (variables.length > 0) {
+                    let variablesCode = '// DY Variables\n';
+                    variables.forEach(variable => {
+                        if (variable.name && variable.value) {
+                            variablesCode += `var ${variable.name} = "${variable.value}";\n`;
+                        }
+                    });
+                    templateJS = variablesCode + '\n' + templateJS;
+                }
+            }
+        }
 
-			const variablesPath = path.join(workspaceFolder, 'variables.json');
-			if (fs.existsSync(variablesPath)) {
-				try {
-					const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
-					variables = JSON.parse(variablesContent);
-				} catch (err) {
-					console.error('Error reading variables:', err);
-				}
-			}
-		}
+        this._view.webview.html = this.getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS);
+    }
 
-		this._view.webview.html = this.getWebviewContent(currentUrl, currentType, variables);
-	}
-
-	getWebviewContent(currentUrl, currentType, variables) {
-		const variablesJson = JSON.stringify(variables);
-
-		return `<!DOCTYPE html>
+    getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS) {
+        const variablesJson = JSON.stringify(variables);
+        // Use JSON.stringify to properly escape the content for embedding
+        const escapedHTML = JSON.stringify(templateHTML);
+        const escapedCSS = JSON.stringify(templateCSS);
+        const escapedJS = JSON.stringify(templateJS);
+        
+        return `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
+        body {
+            padding: 15px;
+            font-family: var(--vscode-font-family);
+            margin: 0;
+        }
+        .section {
             margin-bottom: 20px;
             padding-bottom: 15px;
             border-bottom: 1px solid var(--vscode-panel-border);
@@ -191,7 +236,8 @@ class UrlConfigViewProvider {
             border: none;
             cursor: pointer;
             font-size: 12px;
-            margin: 10px;
+            margin-right: 6px;
+            margin-top: 6px;
         }
         button:hover {
             background: var(--vscode-button-hoverBackground);
@@ -225,6 +271,17 @@ class UrlConfigViewProvider {
         #variablesList {
             margin-bottom: 10px;
         }
+        #preview-iframe {
+            width: calc(100% - 20px);
+            height: 300px;
+            border: 1px solid var(--vscode-panel-border);
+            background: white;
+            margin: 10px;
+        }
+        .preview-container {
+            background: var(--vscode-editor-background);
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -252,6 +309,13 @@ class UrlConfigViewProvider {
     </div>
 
     <div class="section">
+        <div class="section-title">Live Preview</div>
+        <div class="preview-container">
+            <iframe id="preview-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+        </div>
+    </div>
+
+    <div class="section">
         <div class="section-title">Actions</div>
         <button onclick="runPreview()">▶ Run Preview</button>
     </div>
@@ -259,6 +323,47 @@ class UrlConfigViewProvider {
     <script>
         const vscode = acquireVsCodeApi();
         let variables = ${variablesJson};
+
+        // Listen for messages from the extension
+        window.addEventListener('message', event => {
+            const message = event.data;
+            if (message.command === 'refreshPreview') {
+                console.log('Refreshing preview...');
+                // The entire webview will be reloaded by updateWebview()
+            }
+        });
+
+        function updatePreview() {
+            console.log('Updating preview iframe...');
+            const iframe = document.getElementById('preview-iframe');
+            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+            
+            // Parse the JSON-stringified content
+            const html = ${escapedHTML};
+            const css = ${escapedCSS};
+            const js = ${escapedJS};
+            
+            console.log('HTML length:', html.length);
+            console.log('CSS length:', css.length);
+            console.log('JS length:', js.length);
+            
+            const content = \`<!DOCTYPE html>
+<html>
+<head>
+    <style>\${css}</style>
+</head>
+<body>
+    \${html}
+    <script>\${js}<\\/script>
+</body>
+</html>\`;
+            
+            console.log('Writing to iframe...');
+            iframeDoc.open();
+            iframeDoc.write(content);
+            iframeDoc.close();
+            console.log('Preview updated!');
+        }
 
         function renderVariables() {
             const container = document.getElementById('variablesList');
@@ -320,7 +425,9 @@ class UrlConfigViewProvider {
             });
         }
 
+        console.log('Initializing webview...');
         renderVariables();
+        updatePreview();
     </script>
 </body>
 </html>`;
@@ -328,199 +435,154 @@ class UrlConfigViewProvider {
 }
 
 function activate(context) {
-	const urlConfigProvider = new UrlConfigViewProvider(context);
-	context.subscriptions.push(
-		vscode.window.registerWebviewViewProvider('dy-code-preview-view', urlConfigProvider)
-	);
+    const urlConfigProvider = new UrlConfigViewProvider(context);
+    context.subscriptions.push(
+        vscode.window.registerWebviewViewProvider('dy-code-preview-view', urlConfigProvider)
+    );
 
-	const disposable = vscode.commands.registerCommand('dy-code-preview.run', async () => {
-		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-		if (!workspaceFolder) {
-			vscode.window.showErrorMessage('Please open a workspace folder first.');
-			return;
-		}
+    const disposable = vscode.commands.registerCommand('dy-code-preview.run', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a workspace folder first.');
+            return;
+        }
 
-		const scriptPath = path.join(workspaceFolder, 'template.js');
-		const htmlPath = path.join(workspaceFolder, 'template.html');
-		const cssPath = path.join(workspaceFolder, 'style.css');
+        const templatePath = path.join(workspaceFolder, 'template.js');
+        if (!fs.existsSync(templatePath)) {
+            vscode.window.showErrorMessage('template.js not found in workspace folder.');
+            return;
+        }
+        
+        let jsCode = fs.readFileSync(templatePath, 'utf-8');
 
-		if (!fs.existsSync(scriptPath)) {
-			vscode.window.showErrorMessage('template.js not found in workspace folder.');
-			return;
-		}
+        const variablesPath = path.join(workspaceFolder, 'variables.json');
+        if (fs.existsSync(variablesPath)) {
+            try {
+                const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
+                const variables = JSON.parse(variablesContent);
+                
+                let variablesCode = '// DY Variables\n';
+                variables.forEach(variable => {
+                    if (variable.name && variable.value) {
+                        variablesCode += `var ${variable.name} = "${variable.value}";\n`;
+                    }
+                });
+                
+                jsCode = variablesCode + '\n' + jsCode;
+            } catch (err) {
+                console.error('Error reading variables.json:', err);
+            }
+        }
 
-		let jsCode = fs.readFileSync(scriptPath, 'utf-8');
+        const settingsPath = path.join(workspaceFolder, 'settings.json');
+        if (!fs.existsSync(settingsPath)) {
+            vscode.window.showErrorMessage('settings.json not found in workspace folder.');
+            return;
+        }
 
-		const variablesPath = path.join(workspaceFolder, 'variables.json');
-		if (fs.existsSync(variablesPath)) {
-			try {
-				const variablesContent = fs.readFileSync(variablesPath, 'utf-8');
-				const variables = JSON.parse(variablesContent);
+        let url;
+        try {
+            const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
+            const settings = JSON.parse(settingsContent);
+            if (!settings.url) {
+                vscode.window.showErrorMessage('`url` property not found in settings.json');
+                return;
+            }
+            url = settings.url;
+        } catch (err) {
+            vscode.window.showErrorMessage('Failed to read settings.json');
+            console.error(err);
+            return;
+        }
 
-				let variablesCode = '// DY Variables\n';
-				variables.forEach(variable => {
-					if (variable.name && variable.value) {
-						variablesCode += `var ${variable.name} = "${variable.value}";\n`;
-					}
-				});
+        try {
+            const browser = await puppeteer.launch({
+                headless: false,
+                defaultViewport: null
+            });
+            
+            const page = await browser.newPage();
+            await page.goto(url);
+            
+            let injectedFunction;
+            
+            switch (codeType) {
+                case 'customCode':
+                    injectedFunction = pushCustomCode.toString();
+                    break;
+                case 'dynamicContent':
+                    injectedFunction = pushDynamicContent.toString();
+                    break;
+                default:
+                    vscode.window.showErrorMessage(`❌ Unsupported code type: ${codeType}`);
+                    return;
+            }
+            
+            await page.evaluate(`
+                (${injectedFunction})(${JSON.stringify(jsCode)})
+            `);
+            
+            vscode.window.showInformationMessage(`✅ Opened page ${url} and executed ${codeType}!`);
+        } catch (err) {
+            console.error(err);
+            vscode.window.showErrorMessage('Failed to open page or run JS.');
+        }
+    });
 
-				jsCode = variablesCode + '\n' + jsCode;
-			} catch (err) {
-				console.error('Error reading variables.json:', err);
-			}
-		}
+    context.subscriptions.push(disposable);
 
-		let html = '';
-		if (fs.existsSync(htmlPath)) {
-			try {
-				html = fs.readFileSync(htmlPath, 'utf-8');
-			} catch (err) {
-				console.error('Error reading template.html:', err);
-			}
-		}
+    const createCampaignCommand = vscode.commands.registerCommand('dy-code-preview.createCampaign', async () => {
+        const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
+        if (!workspaceFolder) {
+            vscode.window.showErrorMessage('Please open a workspace folder first.');
+            return;
+        }
 
-		let css = '';
-		if (fs.existsSync(cssPath)) {
-			try {
-				css = fs.readFileSync(cssPath, 'utf-8');
-			} catch (err) {
-				console.error('Error reading style.css:', err);
-			}
-		}
+        const folderName = await vscode.window.showInputBox({
+            prompt: 'Enter folder name for the campaign',
+            placeHolder: 'my-campaign'
+        });
 
-		const settingsPath = path.join(workspaceFolder, 'settings.json');
-		if (!fs.existsSync(settingsPath)) {
-			vscode.window.showErrorMessage('settings.json not found in workspace folder.');
-			return;
-		}
+        if (!folderName) {
+            vscode.window.showInformationMessage('Campaign creation canceled.');
+            return;
+        }
 
-		let settings;
-		let url;
-		try {
-			const settingsContent = fs.readFileSync(settingsPath, 'utf-8');
-			settings = JSON.parse(settingsContent);
-			if (!settings.url) {
-				vscode.window.showErrorMessage('`url` property not found in settings.json');
-				return;
-			}
-			url = settings.url;
-		} catch (err) {
-			vscode.window.showErrorMessage('Failed to read settings.json');
-			console.error(err);
-			return;
-		}
+        const campaignType = await vscode.window.showQuickPick(
+            ['custom code', 'dynamic content'],
+            { placeHolder: 'Select campaign type' }
+        );
 
-		try {
-			const browser = await puppeteer.launch({
-				headless: false,
-				defaultViewport: null
-			});
+        if (!campaignType) {
+            vscode.window.showInformationMessage('Campaign creation canceled.');
+            return;
+        }
 
-			const page = await browser.newPage();
-			await page.goto(url, { waitUntil: 'networkidle2' });
+        try {
+            const campaignFolder = path.join(workspaceFolder, folderName);
 
-			// Inject CSS into the page
-			if (css) {
-				try {
-					await page.addStyleTag({ content: css });
-				} catch (err) {
-					console.error('Failed to inject CSS:', err);
-				}
-			}
+            if (!fs.existsSync(campaignFolder)) {
+                fs.mkdirSync(campaignFolder);
+            } else {
+                vscode.window.showWarningMessage(`Folder "${folderName}" already exists. Files will be overwritten.`);
+            }
 
-			// If there's HTML content, append it into the body
-			if (html) {
-				try {
-					await page.evaluate((content) => {
-						document.body.insertAdjacentHTML('beforeend', content);
-					}, html);
-				} catch (err) {
-					console.error('Failed to inject HTML:', err);
-				}
-			}
+            const settings = {
+                url: "",
+                type: campaignType
+            };
+            fs.writeFileSync(path.join(campaignFolder, 'settings.json'), JSON.stringify(settings, null, 2));
 
-			let injectedFunction;
+            fs.writeFileSync(path.join(campaignFolder, 'script.js'), '// Your JS code here');
 
-			switch (settings.type) {
-				case 'custom code':
-					injectedFunction = pushCustomCode.toString();
-					await page.evaluate(`
-						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)})
-					`);
-					break;
-				case 'dynamic content':
-					injectedFunction = pushDynamicContent.toString();
-					await page.evaluate(`
-						(${injectedFunction})(${JSON.stringify(html)}, ${JSON.stringify(css)}, ${JSON.stringify(jsCode)},  ${JSON.stringify(settings)})
-					`);
-					break;
-				default:
-					vscode.window.showErrorMessage(`❌ Unsupported code type: ${settings.type}`);
-					return;
-			}
+            vscode.window.showInformationMessage(`✅ Campaign folder "${folderName}" created with type "${campaignType}"`);
+        } catch (err) {
+            vscode.window.showErrorMessage('Failed to create campaign folder or files.');
+            console.error(err);
+        }
+    });
 
-			vscode.window.showInformationMessage(`✅ Opened page ${url} and executed ${settings.type}!`);
-		} catch (err) {
-			console.error(err);
-			vscode.window.showErrorMessage('Failed to open page or run JS.');
-		}
-	});
-
-
-	context.subscriptions.push(disposable);
-
-	const createCampaignCommand = vscode.commands.registerCommand('dy-code-preview.createCampaign', async () => {
-		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
-		if (!workspaceFolder) {
-			vscode.window.showErrorMessage('Please open a workspace folder first.');
-			return;
-		}
-
-		const folderName = await vscode.window.showInputBox({
-			prompt: 'Enter folder name for the campaign',
-			placeHolder: 'my-campaign'
-		});
-
-		if (!folderName) {
-			vscode.window.showInformationMessage('Campaign creation canceled.');
-			return;
-		}
-
-		const campaignType = await vscode.window.showQuickPick(
-			['custom code', 'dynamic content'],
-			{ placeHolder: 'Select campaign type' }
-		);
-
-		if (!campaignType) {
-			vscode.window.showInformationMessage('Campaign creation canceled.');
-			return;
-		}
-
-		try {
-			const campaignFolder = path.join(workspaceFolder, folderName);
-
-			if (!fs.existsSync(campaignFolder)) {
-				fs.mkdirSync(campaignFolder);
-			} else {
-				vscode.window.showWarningMessage(`Folder "${folderName}" already exists. Files will be overwritten.`);
-			}
-
-			const settings = {
-				url: "",
-				type: campaignType
-			};
-			fs.writeFileSync(path.join(campaignFolder, 'settings.json'), JSON.stringify(settings, null, 2));
-
-			fs.writeFileSync(path.join(campaignFolder, 'template.js'), '// Your JS code here');
-
-			vscode.window.showInformationMessage(`✅ Campaign folder "${folderName}" created with type "${campaignType}"`);
-		} catch (err) {
-			vscode.window.showErrorMessage('Failed to create campaign folder or files.');
-			console.error(err);
-		}
-	});
-
-	context.subscriptions.push(createCampaignCommand);
+    context.subscriptions.push(createCampaignCommand);
 }
 
 function deactivate() { }
