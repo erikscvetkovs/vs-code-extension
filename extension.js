@@ -65,7 +65,6 @@ class UrlConfigViewProvider {
 						fs.writeFileSync(variablesPath, JSON.stringify(message.variables, null, 2));
 						vscode.window.showInformationMessage(`✅ Variables saved!`);
 
-						// Update webview to reflect saved changes
 						this.updateWebview();
 					} catch (err) {
 						vscode.window.showErrorMessage('Failed to save variables.json');
@@ -79,7 +78,6 @@ class UrlConfigViewProvider {
 			}
 		});
 
-		// Watch for file changes to update webview
 		const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 		if (workspaceFolder) {
 			this.watchFiles(workspaceFolder);
@@ -89,20 +87,15 @@ class UrlConfigViewProvider {
 	watchFiles(workspaceFolder) {
 		if (!workspaceFolder) return;
 
-		// Dispose previous watcher if it exists
 		if (this._watcher) {
 			this._watcher.dispose();
 		}
 
-		// Watch for changes to settings.json, variables.json, and template files
 		this._watcher = vscode.workspace.createFileSystemWatcher(
 			new vscode.RelativePattern(workspaceFolder, '{settings.json,variables.json,template.js,template.html,style.css}')
 		);
 
-		this._watcher.onDidChange((uri) => {
-			console.log('File changed:', uri.fsPath);
-			
-			// If template.js changed, parse for variables
+		this._watcher.onDidChange((uri) => {			
 			if (uri.fsPath.endsWith('template.js')) {
 				this.parseAndUpdateVariables(workspaceFolder);
 			}
@@ -111,7 +104,6 @@ class UrlConfigViewProvider {
 				this.parseAndUpdateVariables(workspaceFolder);
 			}
 			
-			// Send message to webview to update preview
 			if (this._view) {
 				this._view.webview.postMessage({ command: 'refreshPreview' });
 			}
@@ -149,12 +141,9 @@ class UrlConfigViewProvider {
 		}
 
 		try {
-			// Read template.js
 			const templateContent = fs.readFileSync(templateJSPath, 'utf-8');
 			const templateContentHTML = fs.readFileSync(templateHTMLpath, 'utf-8');
 
-			// Parse for template literals: ${variableName}
-			// This regex matches ${...} and captures the content inside
 			const regex = /\$\{([^}]+)\}/g;
 			const matches = templateContent.matchAll(regex);
 			const matchesHTML = templateContentHTML.matchAll(regex);
@@ -163,8 +152,6 @@ class UrlConfigViewProvider {
 			for (const match of matches) {
 				const expression = match[1].trim();
 				
-				// Extract simple variable names (not complex expressions)
-				// Only capture single word identifiers at the start of the expression
 				const variableMatch = expression.match(/^([a-zA-Z_$][a-zA-Z0-9_$]*)/);
 				if (variableMatch) {
 					detectedVariables.add(variableMatch[1]);
@@ -173,15 +160,12 @@ class UrlConfigViewProvider {
 			
 				for (const match of matchesHTML) {
 				const expression = match[1].trim();
-				
-				// Extract simple variable names (not complex expressions)
-				// Only capture single word identifiers at the start of the expression
+
 				const variableMatch = expression.match(/^([a-zA-Z_$][a-zA-Z0-9_$]*)/);
 				if (variableMatch) {
 					detectedVariables.add(variableMatch[1]);
 				}
 			}
-			// Read existing variables.json
 			let existingVariables = [];
 			if (fs.existsSync(variablesPath)) {
 				try {
@@ -192,7 +176,6 @@ class UrlConfigViewProvider {
 				}
 			}
 
-			// Create a map of existing variables by name
 			const existingVarMap = new Map();
 			existingVariables.forEach(v => {
 				if (v.name) {
@@ -200,7 +183,6 @@ class UrlConfigViewProvider {
 				}
 			});
 
-			// Merge: add new variables, keep existing values
 			const updatedVariables = [];
 			detectedVariables.forEach(varName => {
 				updatedVariables.push({
@@ -209,7 +191,6 @@ class UrlConfigViewProvider {
 				});
 			});
 
-			// Only write if there are changes
 			if (updatedVariables.length > 0) {
 				fs.writeFileSync(variablesPath, JSON.stringify(updatedVariables, null, 2));
 				console.log(`Auto-detected ${updatedVariables.length} variables from template.js`);
@@ -256,7 +237,6 @@ class UrlConfigViewProvider {
 			}
 
 
-			// Read template files
 			const templateHTMLPath = path.join(workspaceFolder, 'template.html');
 			if (fs.existsSync(templateHTMLPath)) {
 				templateHTML = fs.readFileSync(templateHTMLPath, 'utf-8');
@@ -271,7 +251,6 @@ class UrlConfigViewProvider {
 			if (fs.existsSync(templateJSPath)) {
 				templateJS = fs.readFileSync(templateJSPath, 'utf-8');
 
-				// Prepend variables
 				if (variables.length > 0) {
 					let variablesCode = '// DY Variables\n';
 					variables.forEach(variable => {
@@ -290,312 +269,297 @@ class UrlConfigViewProvider {
 
 	getWebviewContent(currentUrl, currentType, variables, templateHTML, templateCSS, templateJS, settings) {
 		const variablesJson = JSON.stringify(variables);
-		// Use JSON.stringify to properly escape the content for embedding
 		const escapedHTML = JSON.stringify(templateHTML);
 		const escapedCSS = JSON.stringify(templateCSS);
 		const escapedJS = JSON.stringify(templateJS);
 
 		return `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        body {
-            padding: 15px;
-            font-family: var(--vscode-font-family);
-            margin: 0;
-        }
-        .section {
-            margin-bottom: 20px;
-            padding-bottom: 15px;
-            border-bottom: 1px solid var(--vscode-panel-border);
-        }
-        .section:last-child {
-            border-bottom: none;
-        }
-        .section-title {
-            font-size: 14px;
-            font-weight: 600;
-            margin-bottom: 12px;
-            color: var(--vscode-foreground);
-        }
-        .form-group {
-            margin-bottom: 12px;
-        }
-        label {
-            display: block;
-            margin-bottom: 4px;
-            font-size: 12px;
-            font-weight: 500;
-        }
-        input[type="text"], select {
-            width: 100%;
-            padding: 6px 8px;
-            background: var(--vscode-input-background);
-            color: var(--vscode-input-foreground);
-            border: 1px solid var(--vscode-input-border);
-            box-sizing: border-box;
-            font-size: 13px;
-        }
-        input[type="text"]:focus, select:focus {
-            outline: 1px solid var(--vscode-focusBorder);
-        }
-        button {
-            padding: 6px 14px;
-            background: var(--vscode-button-background);
-            color: var(--vscode-button-foreground);
-            border: none;
-            cursor: pointer;
-            font-size: 12px;
-            margin-right: 6px;
-            margin-top: 6px;
-        }
-        button:hover {
-            background: var(--vscode-button-hoverBackground);
-        }
-        button.secondary {
-            background: var(--vscode-button-secondaryBackground);
-            color: var(--vscode-button-secondaryForeground);
-        }
-        button.secondary:hover {
-            background: var(--vscode-button-secondaryHoverBackground);
-        }
-        .variable-item {
-            display: flex;
-            gap: 8px;
-            margin-bottom: 8px;
-            align-items: flex-start;
-        }
-        .variable-item input {
-            flex: 1;
-        }
-        .variable-item button {
-            margin: 0;
-            padding: 6px 10px;
-            background: var(--vscode-button-secondaryBackground);
-        }
-        .button-group {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-        }
-        #variablesList {
-            margin-bottom: 10px;
-        }
-        #preview-iframe {
-            width: calc(100% - 20px);
-            height: 300px;
-            border: 1px solid var(--vscode-panel-border);
-            background: white;
-            margin: 10px;
-        }
-        .preview-container {
-            background: var(--vscode-editor-background);
-            border-radius: 4px;
-        }
-    </style>
-</head>
-<body>
-    <div class="section">
-        <div class="section-title">Campaign Settings</div>
-        <div class="form-group">
-            <label for="url">Preview URL:</label>
-            <input type="text" id="url" value="${currentUrl}" placeholder="https://example.com">
-        </div>
-        <div class="form-group">
-            <label for="campaignType">Campaign Type:</label>
-            <select id="campaignType">
-                <option value="custom code" ${currentType === 'custom code' ? 'selected' : ''}>Custom Code</option>
-                <option value="dynamic content" ${currentType === 'dynamic content' ? 'selected' : ''}>Dynamic Content</option>
-				<option value="notification" ${currentType === 'notification' ? 'selected' : ''}>Overlay</option>
-            </select>
-        </div>
+			<html lang="en">
+			<head>
+				<meta charset="UTF-8">
+				<meta name="viewport" content="width=device-width, initial-scale=1.0">
+				<style>
+					body {
+						padding: 15px;
+						font-family: var(--vscode-font-family);
+						margin: 0;
+					}
+					.section {
+						margin-bottom: 20px;
+						padding-bottom: 15px;
+						border-bottom: 1px solid var(--vscode-panel-border);
+					}
+					.section:last-child {
+						border-bottom: none;
+					}
+					.section-title {
+						font-size: 14px;
+						font-weight: 600;
+						margin-bottom: 12px;
+						color: var(--vscode-foreground);
+					}
+					.form-group {
+						margin-bottom: 12px;
+					}
+					label {
+						display: block;
+						margin-bottom: 4px;
+						font-size: 12px;
+						font-weight: 500;
+					}
+					input[type="text"], select {
+						width: 100%;
+						padding: 6px 8px;
+						background: var(--vscode-input-background);
+						color: var(--vscode-input-foreground);
+						border: 1px solid var(--vscode-input-border);
+						box-sizing: border-box;
+						font-size: 13px;
+					}
+					input[type="text"]:focus, select:focus {
+						outline: 1px solid var(--vscode-focusBorder);
+					}
+					button {
+						padding: 6px 14px;
+						background: var(--vscode-button-background);
+						color: var(--vscode-button-foreground);
+						border: none;
+						cursor: pointer;
+						font-size: 12px;
+						margin-right: 6px;
+						margin-top: 6px;
+					}
+					button:hover {
+						background: var(--vscode-button-hoverBackground);
+					}
+					button.secondary {
+						background: var(--vscode-button-secondaryBackground);
+						color: var(--vscode-button-secondaryForeground);
+					}
+					button.secondary:hover {
+						background: var(--vscode-button-secondaryHoverBackground);
+					}
+					.variable-item {
+						display: flex;
+						gap: 8px;
+						margin-bottom: 8px;
+						align-items: flex-start;
+					}
+					.variable-item input {
+						flex: 1;
+					}
+					.variable-item button {
+						margin: 0;
+						padding: 6px 10px;
+						background: var(--vscode-button-secondaryBackground);
+					}
+					.button-group {
+						display: flex;
+						gap: 6px;
+						flex-wrap: wrap;
+					}
+					#variablesList {
+						margin-bottom: 10px;
+					}
+					#preview-iframe {
+						width: calc(100% - 20px);
+						height: 300px;
+						border: 1px solid var(--vscode-panel-border);
+						background: white;
+						margin: 10px;
+					}
+					.preview-container {
+						background: var(--vscode-editor-background);
+						border-radius: 4px;
+					}
+				</style>
+			</head>
+			<body>
+				<div class="section">
+					<div class="section-title">Campaign Settings</div>
+					<div class="form-group">
+						<label for="url">Preview URL:</label>
+						<input type="text" id="url" value="${currentUrl}" placeholder="https://example.com">
+					</div>
+					<div class="form-group">
+						<label for="campaignType">Campaign Type:</label>
+						<select id="campaignType">
+							<option value="custom code" ${currentType === 'custom code' ? 'selected' : ''}>Custom Code</option>
+							<option value="dynamic content" ${currentType === 'dynamic content' ? 'selected' : ''}>Dynamic Content</option>
+							<option value="notification" ${currentType === 'notification' ? 'selected' : ''}>Overlay</option>
+						</select>
+					</div>
 
-<div id="dynamicContentSettings" style="display: ${currentType === 'dynamic content' ? 'block' : 'none'};">
-    <div class="form-group">
-        <label for="method">Method:</label>
-        <select id="method">
-            <option value="beforebegin" ${currentType === 'dynamic content' && settings.method === 'beforebegin' ? 'selected' : ''}>insert before</option>
-            <option value="afterbegin" ${currentType === 'dynamic content' && settings.method === 'afterbegin' ? 'selected' : ''}>replace</option>
-			<option value="afterend" ${currentType === 'dynamic content' && settings.method === 'afterend' ? 'selected' : ''}>insert after</option>
-        </select>
-    </div>
-    <div class="form-group">
-        <label for="selector">Selector:</label>
-        <input type="text" id="selector" value="${currentType === 'dynamic content' && settings.selector ? settings.selector : 'body'}" placeholder="CSS selector">
-    </div>
-</div>
+			<div id="dynamicContentSettings" style="display: ${currentType === 'dynamic content' ? 'block' : 'none'};">
+				<div class="form-group">
+					<label for="method">Method:</label>
+					<select id="method">
+						<option value="beforebegin" ${currentType === 'dynamic content' && settings.method === 'beforebegin' ? 'selected' : ''}>insert before</option>
+						<option value="afterbegin" ${currentType === 'dynamic content' && settings.method === 'afterbegin' ? 'selected' : ''}>replace</option>
+						<option value="afterend" ${currentType === 'dynamic content' && settings.method === 'afterend' ? 'selected' : ''}>insert after</option>
+					</select>
+				</div>
+				<div class="form-group">
+					<label for="selector">Selector:</label>
+					<input type="text" id="selector" value="${currentType === 'dynamic content' && settings.selector ? settings.selector : 'body'}" placeholder="CSS selector">
+				</div>
+			</div>
 
-        <button onclick="saveSettings()">Save Settings</button>
-    </div>
+					<button onclick="saveSettings()">Save Settings</button>
+				</div>
 
-    <div class="section">
-        <div class="section-title">DY Variables</div>
-        <div id="variablesList"></div>
-        <button class="secondary" onclick="addVariable()">+ Add Variable</button>
-        <button onclick="saveVariables()">Save Variables</button>
-    </div>
+				<div class="section">
+					<div class="section-title">DY Variables</div>
+					<div id="variablesList"></div>
+					<button class="secondary" onclick="addVariable()">+ Add Variable</button>
+					<button onclick="saveVariables()">Save Variables</button>
+				</div>
 
-    <div class="section">
-        <div class="section-title">Live Preview</div>
-        <div class="preview-container">
-            <iframe id="preview-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
-        </div>
-    </div>
+				<div class="section">
+					<div class="section-title">Live Preview</div>
+					<div class="preview-container">
+						<iframe id="preview-iframe" sandbox="allow-scripts allow-same-origin"></iframe>
+					</div>
+				</div>
 
-    <div class="section">
-        <div class="section-title">Actions</div>
-        <button onclick="runPreview()">▶ Run Preview</button>
-    </div>
+				<div class="section">
+					<div class="section-title">Actions</div>
+					<button onclick="runPreview()">▶ Run Preview</button>
+				</div>
 
-    <script>
+				<script>
 
-		const campaignTypeSelect = document.getElementById('campaignType');
-		const dynamicSettingsDiv = document.getElementById('dynamicContentSettings');
+					const campaignTypeSelect = document.getElementById('campaignType');
+					const dynamicSettingsDiv = document.getElementById('dynamicContentSettings');
 
-		campaignTypeSelect.addEventListener('change', () => {
-			if (campaignTypeSelect.value === 'dynamic content') {
-				dynamicSettingsDiv.style.display = 'block';
-			} else {
-				dynamicSettingsDiv.style.display = 'none';
-			}
-		});
-		
-        const vscode = acquireVsCodeApi();
-        let variables = ${variablesJson};
+					campaignTypeSelect.addEventListener('change', () => {
+						if (campaignTypeSelect.value === 'dynamic content') {
+							dynamicSettingsDiv.style.display = 'block';
+						} else {
+							dynamicSettingsDiv.style.display = 'none';
+						}
+					});
+					
+					const vscode = acquireVsCodeApi();
+					let variables = ${variablesJson};
 
-        // Listen for messages from the extension
-        window.addEventListener('message', event => {
-            const message = event.data;
-            if (message.command === 'refreshPreview') {
-                console.log('Refreshing preview...');
-                // The entire webview will be reloaded by updateWebview()
-            }
-        });
+					// Listen for messages from the extension
+					window.addEventListener('message', event => {
+						const message = event.data;
+						if (message.command === 'refreshPreview') {
+							console.log('Refreshing preview...');
+							// The entire webview will be reloaded by updateWebview()
+						}
+					});
 
-        function updatePreview() {
-            console.log('Updating preview iframe...');
-            const iframe = document.getElementById('preview-iframe');
-            const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
-            
-            // Parse the JSON-stringified content
-            const html = ${escapedHTML};
-            const css = ${escapedCSS};
-            const js = ${escapedJS};
-            
-            console.log('HTML length:', html.length);
-            console.log('CSS length:', css.length);
-            console.log('JS length:', js.length);
-            
-            const content = \`<!DOCTYPE html>
-<html>
-<head>
-    <style>\${css}</style>
-</head>
-<body>
-    \${html}
-    <script>\${js}<\\/script>
-</body>
-</html>\`;
-            
-            console.log('Writing to iframe...');
-            iframeDoc.open();
-            iframeDoc.write(content);
-            iframeDoc.close();
-            console.log('Preview updated!');
-        }
+					function updatePreview() {
+						console.log('Updating preview iframe...');
+						const iframe = document.getElementById('preview-iframe');
+						const iframeDoc = iframe.contentDocument || iframe.contentWindow.document;
+						
+						// Parse the JSON-stringified content
+						const html = ${escapedHTML};
+						const css = ${escapedCSS};
+						const js = ${escapedJS};
+						
+						console.log('HTML length:', html.length);
+						console.log('CSS length:', css.length);
+						console.log('JS length:', js.length);
+						
+						const content = \`<!DOCTYPE html>
+			<html>
+			<head>
+				<style>\${css}</style>
+			</head>
+			<body>
+				\${html}
+				<script>\${js}<\\/script>
+			</body>
+			</html>\`;
+						
+						console.log('Writing to iframe...');
+						iframeDoc.open();
+						iframeDoc.write(content);
+						iframeDoc.close();
+						console.log('Preview updated!');
+					}
 
-        function renderVariables() {
-            const container = document.getElementById('variablesList');
-            container.innerHTML = '';
-            
-            if (variables.length === 0) {
-                container.innerHTML = '<p style="font-size: 12px; color: var(--vscode-descriptionForeground);">No variables defined yet.</p>';
-                return;
-            }
-            
-            variables.forEach((variable, index) => {
-                const div = document.createElement('div');
-                div.className = 'variable-item';
-                div.innerHTML = \`
-                    <input type="text" placeholder="Variable name" value="\${variable.name || ''}" onchange="updateVariable(\${index}, 'name', this.value)">
-                    <input type="text" placeholder="Variable value" value="\${variable.value || ''}" onchange="updateVariable(\${index}, 'value', this.value)">
-                    <button onclick="removeVariable(\${index})">×</button>
-                \`;
-                container.appendChild(div);
-            });
-        }
+					function renderVariables() {
+						const container = document.getElementById('variablesList');
+						container.innerHTML = '';
+						
+						if (variables.length === 0) {
+							container.innerHTML = '<p style="font-size: 12px; color: var(--vscode-descriptionForeground);">No variables defined yet.</p>';
+							return;
+						}
+						
+						variables.forEach((variable, index) => {
+							const div = document.createElement('div');
+							div.className = 'variable-item';
+							div.innerHTML = \`
+								<input type="text" placeholder="Variable name" value="\${variable.name || ''}" onchange="updateVariable(\${index}, 'name', this.value)">
+								<input type="text" placeholder="Variable value" value="\${variable.value || ''}" onchange="updateVariable(\${index}, 'value', this.value)">
+								<button onclick="removeVariable(\${index})">×</button>
+							\`;
+							container.appendChild(div);
+						});
+					}
 
-        function addVariable() {
-            variables.push({ name: '', value: '' });
-            renderVariables();
-        }
+					function addVariable() {
+						variables.push({ name: '', value: '' });
+						renderVariables();
+					}
 
-        function removeVariable(index) {
-            variables.splice(index, 1);
-            renderVariables();
-        }
+					function removeVariable(index) {
+						variables.splice(index, 1);
+						renderVariables();
+					}
 
-        function updateVariable(index, field, value) {
-            variables[index][field] = value;
-        }
+					function updateVariable(index, field, value) {
+						variables[index][field] = value;
+					}
 
-        // function saveSettings() {
-        //     const url = document.getElementById('url').value;
-        //     const type = document.getElementById('campaignType').value;
-        //     vscode.postMessage({
-        //         command: 'saveSettings',
-        //         url: url,
-        //         type: type,
-		// 		...(campaignType === 'dynamic content' ? {
-		// 			method,
-		// 			selector
-		// 		} : {})
-        //     });
-        // }
+					function saveSettings() {
+					debugger
+						const url = document.getElementById('url').value;
+						const type = document.getElementById('campaignType').value;
 
-		function saveSettings() {
-		   debugger
-			const url = document.getElementById('url').value;
-			const type = document.getElementById('campaignType').value;
+						const message = {
+							command: 'saveSettings',
+							url: url,
+							type: type
+						};
 
-			const message = {
-				command: 'saveSettings',
-				url: url,
-				type: type
-			};
+						if (type === 'dynamic content') {
+							message.method = document.getElementById('method').value;
+							message.selector = document.getElementById('selector').value;
+						}
 
-			if (type === 'dynamic content') {
-				message.method = document.getElementById('method').value;
-				message.selector = document.getElementById('selector').value;
-			}
-
-			vscode.postMessage(message);
-		}
+						vscode.postMessage(message);
+					}
 
 
-        function saveVariables() {
-            // Filter out empty variables
-            const validVariables = variables.filter(v => v.name && v.value);
-            vscode.postMessage({
-                command: 'saveVariables',
-                variables: validVariables
-            });
-        }
+					function saveVariables() {
+						// Filter out empty variables
+						const validVariables = variables.filter(v => v.name && v.value);
+						vscode.postMessage({
+							command: 'saveVariables',
+							variables: validVariables
+						});
+					}
 
-        function runPreview() {
-            vscode.postMessage({
-                command: 'runPreview'
-            });
-        }
+					function runPreview() {
+						vscode.postMessage({
+							command: 'runPreview'
+						});
+					}
 
-        console.log('Initializing webview...');
-        renderVariables();
-        updatePreview();
-    </script>
-</body>
-</html>`;
+					console.log('Initializing webview...');
+					renderVariables();
+					updatePreview();
+				</script>
+			</body>
+			</html>`;
 	}
 }
 
@@ -605,7 +569,6 @@ function activate(context) {
 		vscode.window.registerWebviewViewProvider('dy-code-preview-view', urlConfigProvider)
 	);
 
-	// Parse variables on activation if template.js exists
 	const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
 	if (workspaceFolder) {
 		urlConfigProvider.parseAndUpdateVariables(workspaceFolder);
@@ -667,7 +630,6 @@ function activate(context) {
 			}
 		}
 
-		let variables = '';
 		if (fs.existsSync(variablePath)) {
 			try {
 				css = fs.readFileSync(variablePath, 'utf-8');
@@ -699,8 +661,6 @@ function activate(context) {
 			return;
 		}
 
-		console.log(settings)
-
 		try {
 			const browser = await puppeteer.launch({
 				headless: false,
@@ -710,7 +670,6 @@ function activate(context) {
 			const page = await browser.newPage();
 			await page.goto(url, { waitUntil: 'networkidle2' });
 
-			// Inject CSS into the page
 			if (css) {
 				try {
 					await page.addStyleTag({ content: css });
@@ -718,17 +677,6 @@ function activate(context) {
 					console.error('Failed to inject CSS:', err);
 				}
 			}
-
-			// If there's HTML content, append it into the body
-			// if (html) {
-			// 	try {
-			// 		await page.evaluate((content) => {
-			// 			document.body.insertAdjacentHTML('beforeend', content);
-			// 		}, html);
-			// 	} catch (err) {
-			// 		console.error('Failed to inject HTML:', err);
-			// 	}
-			// }
 
 			let injectedFunction;
 
@@ -801,9 +749,6 @@ function activate(context) {
 			} else {
 				vscode.window.showWarningMessage(`Folder "${folderName}" already exists. Files will be overwritten.`);
 			}
-
-
-			console.log('xxx campaign type ', campaignType);
 
 			const settings = {
 				url: "",

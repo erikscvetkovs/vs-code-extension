@@ -3,6 +3,7 @@
   "displayName": "dy-code-preview",
   "description": "",
   "version": "0.0.1",
+  "publisher": "DY-mission-impossible",
   "engines": {
     "vscode": "^1.103.0"
   },
@@ -10,7 +11,6 @@
     "Other"
   ],
   "dependencies": {
-    "git": "^0.1.5",
     "puppeteer": "^23.3.0"
   },
   "activationEvents": [],
