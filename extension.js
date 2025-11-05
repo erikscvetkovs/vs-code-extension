@@ -1,5 +1,5 @@
 const vscode = require('vscode');
-// const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 
@@ -198,25 +198,25 @@ function activate(context) {
             return;
         }
 
-        // try {
-        //     const browser = await puppeteer.launch({
-        //         headless: false,
-        //         defaultViewport: null
-        //     });
+        try {
+            const browser = await puppeteer.launch({
+                headless: false,
+                defaultViewport: null
+            });
 
-        //     const page = await browser.newPage();
-        //     await page.goto(url);
+            const page = await browser.newPage();
+            await page.goto(url);
 
-        //     const injectedFunction = pushCustomCode.toString();
-        //     await page.evaluate(`
-        //         (${injectedFunction})(${JSON.stringify(jsCode)})
-        //     `);
+            const injectedFunction = pushCustomCode.toString();
+            await page.evaluate(`
+                (${injectedFunction})(${JSON.stringify(jsCode)})
+            `);
 
-        //     vscode.window.showInformationMessage(`✅ Opened page ${url} and executed JS!`);
-        // } catch (err) {
-        //     console.error(err);
-        //     vscode.window.showErrorMessage('Failed to open page or run JS.');
-        // }
+            vscode.window.showInformationMessage(`✅ Opened page ${url} and executed JS!`);
+        } catch (err) {
+            console.error(err);
+            vscode.window.showErrorMessage('Failed to open page or run JS.');
+        }
     });
 
     context.subscriptions.push(disposable);
